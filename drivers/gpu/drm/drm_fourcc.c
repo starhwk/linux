@@ -252,6 +252,10 @@ EXPORT_SYMBOL(drm_format_num_planes);
  * @format: pixel format (DRM_FORMAT_*)
  * @plane: plane index
  *
+ * This returns the bytes per pixel value for @plane of @format. The cpp
+ * in the format info is '0' for formats with macropixel, thus this function
+ * can't be used for those formats.
+ *
  * Returns:
  * The bytes per pixel value for the specified plane.
  */
@@ -262,6 +266,9 @@ int drm_format_plane_cpp(uint32_t format, int plane)
 	info = drm_format_info(format);
 	if (!info || plane >= info->num_planes)
 		return 0;
+
+	/* Warn if it's a macropixel format.*/
+	WARN_ON(!info->cpp[plane]);
 
 	return info->cpp[plane];
 }
@@ -348,3 +355,41 @@ int drm_format_plane_height(int height, uint32_t format, int plane)
 	return height / info->vsub;
 }
 EXPORT_SYMBOL(drm_format_plane_height);
+
+/**
+ * drm_format_plane_width_bytes - bytes of the given width of the plane
+ * @info: DRM format information
+ * @plane: plane index
+ * @width: width to get the number of bytes
+ *
+ * This returns the number of bytes needed for given @width and @plane.
+ * Only one of @cpp or macropixel information should be valid.
+ *
+ * Returns:
+ * The bytes for @width of @plane. 0 for invalid format info.
+ */
+int drm_format_plane_width_bytes(const struct drm_format_info *info,
+				 int plane, int width)
+{
+	if (!info || plane >= info->num_planes)
+		return 0;
+
+	if (info->cpp[plane]) {
+		WARN_ON(info->bytes_per_macropixel[plane] ||
+			info->pixels_per_macropixel[plane]);
+		return info->cpp[plane] * width;
+	}
+
+	if (WARN_ON(!info->bytes_per_macropixel[plane] ||
+		    !info->pixels_per_macropixel[plane])) {
+		struct drm_format_name_buf buf;
+
+		DRM_WARN("Either cpp or macro-pixel info should be valid: %s\n",
+			 drm_get_format_name(info->format, &buf));
+		return 0;
+	}
+
+	return DIV_ROUND_UP(width * info->bytes_per_macropixel[plane],
+			    info->pixels_per_macropixel[plane]);
+}
+EXPORT_SYMBOL(drm_format_plane_width_bytes);
